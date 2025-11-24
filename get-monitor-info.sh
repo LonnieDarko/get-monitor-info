@@ -2,9 +2,9 @@
 set -euo pipefail
 
 python3 <<'PY'
-import datetime, ipaddress, json, pathlib, plistlib, re, subprocess
+import datetime, getpass, ipaddress, json, pathlib, plistlib, re, subprocess
 
-log_path = pathlib.Path("/Library/Logs/Contoso/GetMonitorInfo/monitor-info.log")
+log_path = pathlib.Path("/Library/Logs/Contoso/GetMonitorInfo/get-monitor-info.log")
 now = datetime.datetime.utcnow()
 timestamp = now.replace(microsecond=0).isoformat() + "Z"
 
@@ -24,7 +24,26 @@ def detect_location() -> str:
             return "vpn"
     return "office"
 
+def get_device_name():
+    try:
+        name = subprocess.check_output(["scutil", "--get", "ComputerName"], text=True)
+        name = name.strip()
+        return name or None
+    except Exception:
+        return None
+
+def get_current_user():
+    try:
+        user = subprocess.check_output(["stat", "-f%Su", "/dev/console"], text=True).strip()
+        if user:
+            return user
+        return getpass.getuser()
+    except Exception:
+        return None
+
 location = detect_location()
+device_name = get_device_name()
+current_user = get_current_user()
 
 plist_bytes = subprocess.check_output(["ioreg", "-a", "-l", "-c", "IODisplayConnect"])
 data = plistlib.loads(plist_bytes)
@@ -53,7 +72,13 @@ while stack:
     elif isinstance(node, list):
         stack.extend(node)
 
-entry = {"timestamp": timestamp, "location": location, "monitors": monitors}
+entry = {
+    "timestamp": timestamp,
+    "location": location,
+    "device": device_name,
+    "user": current_user,
+    "monitors": monitors,
+}
 
 print("<result>" + json.dumps(entry) + "</result>")
 
