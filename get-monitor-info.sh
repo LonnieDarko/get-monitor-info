@@ -1,19 +1,34 @@
 #!/bin/zsh
 set -euo pipefail
 
-# Sammle Display-Daten als Plist, verarbeite sie in Python und logge Ergebnisse nach /Library/Logs/Contoso/GetMonitorInfo/monitor-info.log
 python3 <<'PY'
-import datetime, json, pathlib, plistlib, subprocess
+import datetime, ipaddress, json, pathlib, plistlib, re, subprocess
 
 log_path = pathlib.Path("/Library/Logs/Contoso/GetMonitorInfo/monitor-info.log")
 now = datetime.datetime.utcnow()
 timestamp = now.replace(microsecond=0).isoformat() + "Z"
 
-# ioreg als Plist laden
+def detect_location() -> str:
+    try:
+        output = subprocess.check_output(["ifconfig"], text=True)
+    except Exception:
+        return "office"
+
+    matches = re.findall(r"\binet (?!127\.)(\d+\.\d+\.\d+\.\d+)", output)
+    for candidate in matches:
+        try:
+            ip = ipaddress.ip_address(candidate)
+        except ValueError:
+            continue
+        if ip in ipaddress.ip_network("10.123.0.0/16"):
+            return "vpn"
+    return "office"
+
+location = detect_location()
+
 plist_bytes = subprocess.check_output(["ioreg", "-a", "-l", "-c", "IODisplayConnect"])
 data = plistlib.loads(plist_bytes)
 
-# Displays aus dem Baum einsammeln
 monitors = []
 stack = [data]
 while stack:
@@ -31,12 +46,10 @@ while stack:
     elif isinstance(node, list):
         stack.extend(node)
 
-entry = {"timestamp": timestamp, "monitors": monitors}
+entry = {"timestamp": timestamp, "location": location, "monitors": monitors}
 
-# Ausgabe für Jamf
 print("<result>" + json.dumps(entry) + "</result>")
 
-# Log als NDJSON nach /Library/Logs/Contoso/GetMonitorInfo/monitor-info.log; Einträge älter als 30 Tage entfernen
 cutoff = now - datetime.timedelta(days=30)
 
 def parse_ts(ts: str):
