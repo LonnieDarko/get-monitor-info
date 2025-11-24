@@ -4,6 +4,8 @@ set -euo pipefail
 python3 <<'PY'
 import datetime, getpass, ipaddress, json, pathlib, plistlib, re, subprocess
 
+vpn_subnet = ipaddress.ip_network("10.123.0.0/16")
+manufacturer_map = {"DEL": "DELL", "ENC": "EIZO", "NEC": "NEC"}
 log_path = pathlib.Path("/Library/Logs/Contoso/GetMonitorInfo/get-monitor-info.log")
 
 def get_current_user():
@@ -35,9 +37,16 @@ def get_location() -> str:
             ip = ipaddress.ip_address(candidate)
         except ValueError:
             continue
-        if ip in ipaddress.ip_network("10.123.0.0/16"):
+        if ip in vpn_subnet:
             return "vpn"
     return "office"
+
+def parse_ts(ts: str):
+    try:
+        ts = ts[:-1] if ts.endswith("Z") else ts
+        return datetime.datetime.fromisoformat(ts)
+    except Exception:
+        return None
 
 now = datetime.datetime.utcnow()
 cutoff = now - datetime.timedelta(days=30)
@@ -48,8 +57,6 @@ location = get_location()
 
 plist_bytes = subprocess.check_output(["ioreg", "-a", "-l", "-c", "IODisplayConnect"])
 data = plistlib.loads(plist_bytes)
-
-manufacturer_map = {"DEL": "DELL", "ENC": "EIZO", "NEC": "NEC"}
 monitors = []
 stack = [data]
 while stack:
@@ -92,13 +99,6 @@ entry = {
 
 # Print for Jamf extension attribute collection
 print("<result>" + json.dumps(entry) + "</result>")
-
-def parse_ts(ts: str):
-    try:
-        ts = ts[:-1] if ts.endswith("Z") else ts
-        return datetime.datetime.fromisoformat(ts)
-    except Exception:
-        return None
 
 existing = []
 if log_path.exists():
