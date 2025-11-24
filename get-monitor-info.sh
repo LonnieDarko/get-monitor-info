@@ -29,6 +29,7 @@ location = detect_location()
 plist_bytes = subprocess.check_output(["ioreg", "-a", "-l", "-c", "IODisplayConnect"])
 data = plistlib.loads(plist_bytes)
 
+allowed_manufacturers = {"DEL", "ENC", "NEC"}
 monitors = []
 stack = [data]
 while stack:
@@ -39,7 +40,13 @@ while stack:
             prod = attrs.get("ProductAttributes") or {}
             name = prod.get("ProductName")
             serial = prod.get("AlphanumericSerialNumber")
-            if name and serial:
+            manufacturer = prod.get("ManufacturerID")
+            if (
+                name
+                and serial
+                and manufacturer
+                and str(manufacturer).upper() in allowed_manufacturers
+            ):
                 monitors.append({"product": name, "serial": str(serial)})
         children = node.get("IORegistryEntryChildren") or []
         stack.extend(children)
