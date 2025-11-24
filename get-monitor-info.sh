@@ -5,10 +5,25 @@ python3 <<'PY'
 import datetime, getpass, ipaddress, json, pathlib, plistlib, re, subprocess
 
 log_path = pathlib.Path("/Library/Logs/Contoso/GetMonitorInfo/get-monitor-info.log")
-now = datetime.datetime.utcnow()
-timestamp = now.replace(microsecond=0).isoformat() + "Z"
 
-def detect_location() -> str:
+def get_current_user():
+    try:
+        user = subprocess.check_output(["stat", "-f%Su", "/dev/console"], text=True).strip()
+        if user:
+            return user
+        return getpass.getuser()
+    except Exception:
+        return None
+
+def get_device_name():
+    try:
+        name = subprocess.check_output(["scutil", "--get", "ComputerName"], text=True)
+        name = name.strip()
+        return name or None
+    except Exception:
+        return None
+
+def get_location() -> str:
     try:
         output = subprocess.check_output(["ifconfig"], text=True)
     except Exception:
@@ -24,49 +39,44 @@ def detect_location() -> str:
             return "vpn"
     return "office"
 
-def get_device_name():
-    try:
-        name = subprocess.check_output(["scutil", "--get", "ComputerName"], text=True)
-        name = name.strip()
-        return name or None
-    except Exception:
-        return None
-
-def get_current_user():
-    try:
-        user = subprocess.check_output(["stat", "-f%Su", "/dev/console"], text=True).strip()
-        if user:
-            return user
-        return getpass.getuser()
-    except Exception:
-        return None
-
-location = detect_location()
-device_name = get_device_name()
+now = datetime.datetime.utcnow()
+cutoff = now - datetime.timedelta(days=30)
+timestamp = now.replace(microsecond=0).isoformat() + "Z"
 current_user = get_current_user()
+device_name = get_device_name()
+location = get_location()
 
 plist_bytes = subprocess.check_output(["ioreg", "-a", "-l", "-c", "IODisplayConnect"])
 data = plistlib.loads(plist_bytes)
 
-allowed_manufacturers = {"DEL", "ENC", "NEC"}
+manufacturer_map = {"DEL": "DELL", "ENC": "EIZO", "NEC": "NEC"}
 monitors = []
 stack = [data]
 while stack:
     node = stack.pop()
     if isinstance(node, dict):
         if not node.get("IOBuiltin"):
-            attrs = node.get("DisplayAttributes") or {}
-            prod = attrs.get("ProductAttributes") or {}
-            name = prod.get("ProductName")
-            serial = prod.get("AlphanumericSerialNumber")
-            manufacturer = prod.get("ManufacturerID")
+            display_attributes = node.get("DisplayAttributes") or {}
+            product_attributes = display_attributes.get("ProductAttributes") or {}
+            manufacturer_id = product_attributes.get("ManufacturerID")
+            manufacturer_key = str(manufacturer_id).upper() if manufacturer_id is not None else None
+            product_name = product_attributes.get("ProductName")
+            serial_number = product_attributes.get("SerialNumber")
+            alphanumeric_serial_number = product_attributes.get("AlphanumericSerialNumber")
+            has_serial = serial_number is not None or alphanumeric_serial_number is not None
             if (
-                name
-                and serial
-                and manufacturer
-                and str(manufacturer).upper() in allowed_manufacturers
+                manufacturer_key in manufacturer_map
+                and product_name
+                and has_serial
             ):
-                monitors.append({"product": name, "serial": str(serial)})
+                monitors.append(
+                    {
+                        "manufacturer": manufacturer_map[manufacturer_key],
+                        "product_name": product_name,
+                        "serial_number": str(serial_number) if serial_number is not None else None,
+                        "alphanumeric_serial_number": str(alphanumeric_serial_number) if alphanumeric_serial_number is not None else None,
+                    }
+                )
         children = node.get("IORegistryEntryChildren") or []
         stack.extend(children)
     elif isinstance(node, list):
@@ -74,15 +84,14 @@ while stack:
 
 entry = {
     "timestamp": timestamp,
-    "location": location,
-    "device": device_name,
     "user": current_user,
+    "device": device_name,
+    "location": location,
     "monitors": monitors,
 }
 
+# Print for Jamf extension attribute collection
 print("<result>" + json.dumps(entry) + "</result>")
-
-cutoff = now - datetime.timedelta(days=30)
 
 def parse_ts(ts: str):
     try:
