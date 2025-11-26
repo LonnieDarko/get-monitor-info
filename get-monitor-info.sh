@@ -41,6 +41,11 @@ def get_location() -> str:
             return "vpn"
     return "office"
 
+def sanitize_plist_bytes(raw_bytes: bytes) -> bytes:
+    text = raw_bytes.decode("utf-8", errors="ignore")
+    text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", text)
+    return text.encode("utf-8")
+
 def parse_ts(ts: str):
     try:
         ts = ts[:-1] if ts.endswith("Z") else ts
@@ -55,27 +60,24 @@ current_user = get_current_user()
 device_name = get_device_name()
 location = get_location()
 
-plist_bytes = subprocess.check_output(["ioreg", "-a", "-l", "-c", "IODisplayConnect"])
-data = plistlib.loads(plist_bytes)
+plist_bytes = subprocess.check_output(["ioreg", "-a", "-k", "DisplayAttributes", "-c", "IODisplayConnect"])
+clean_plist_bytes = sanitize_plist_bytes(plist_bytes)
+data = plistlib.loads(clean_plist_bytes)
 monitors = []
 stack = [data]
 while stack:
     node = stack.pop()
     if isinstance(node, dict):
-        if not node.get("IOBuiltin"):
-            display_attributes = node.get("DisplayAttributes") or {}
-            product_attributes = display_attributes.get("ProductAttributes") or {}
-            manufacturer_id = product_attributes.get("ManufacturerID")
-            manufacturer_key = str(manufacturer_id).upper() if manufacturer_id is not None else None
+        display_attributes = node.get("DisplayAttributes") or {}
+        product_attributes = display_attributes.get("ProductAttributes") or {}
+        manufacturer_id = product_attributes.get("ManufacturerID")
+        manufacturer_key = str(manufacturer_id).upper() if manufacturer_id is not None else None
+        if manufacturer_key in manufacturer_map:
             product_name = product_attributes.get("ProductName")
             serial_number = product_attributes.get("SerialNumber")
             alphanumeric_serial_number = product_attributes.get("AlphanumericSerialNumber")
             has_serial = serial_number is not None or alphanumeric_serial_number is not None
-            if (
-                manufacturer_key in manufacturer_map
-                and product_name
-                and has_serial
-            ):
+            if product_name and has_serial:
                 monitors.append(
                     {
                         "manufacturer": manufacturer_map[manufacturer_key],
