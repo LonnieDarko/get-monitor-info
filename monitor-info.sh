@@ -8,6 +8,27 @@ LOG_FILE="${LOG_DIR}/monitor-info.log"
 
 [[ -d "${LOG_DIR}" ]] || mkdir -p "${LOG_DIR}"
 
+prune_old_logs() {
+  [[ -f "${LOG_FILE}" ]] || return 0
+
+  local cutoff_epoch tmp_log
+  cutoff_epoch=$(date -u -v-30d +%s)
+  tmp_log="$(mktemp "${LOG_DIR}/monitor-info.prune.XXXXXX")"
+
+  if jq -c --argjson cutoff "${cutoff_epoch}" '
+      select(
+        (try (.timestamp | sub("\\+00:00$"; "Z") | fromdateiso8601) catch $cutoff)
+        >= $cutoff
+      )
+    ' "${LOG_FILE}" >"${tmp_log}"; then
+    mv "${tmp_log}" "${LOG_FILE}"
+  else
+    rm -f "${tmp_log}"
+  fi
+}
+
+prune_old_logs
+
 timestamp="$(date -u +"%Y-%m-%dT%H:%M:%S")+00:00"
 user="$(stat -f '%Su' /dev/console 2>/dev/null)"
 device="$(scutil --get ComputerName 2>/dev/null)"
@@ -19,7 +40,7 @@ exec 2> >(
   if [[ -n "${err_stream}" ]]; then
     err_json=$(printf '%s' "${err_stream}" | jq -Rs .)
 
-    printf '{"timestamp":"%s","user":"%s","device":"%s","status":"error","error_message":%s}\n' \
+    printf '{"timestamp":"%s","status":"error","user":"%s","device":"%s","error_message":%s}\n' \
       "$timestamp" "$user" "$device" "$err_json" >>"${LOG_FILE}"
   fi
 )
@@ -49,9 +70,9 @@ jq -c \
   --arg device  "$device" '
   {
     timestamp: $timestamp,
+    status: "ok",
     user:      $user,
     device:    $device,
-    status: "ok",
 
     monitors: (
       [ .. | objects
