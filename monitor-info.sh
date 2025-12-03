@@ -1,5 +1,7 @@
 #!/bin/zsh --no-rcs
 
+set -euo pipefail
+
 LOG_ROOT="${HOME}/Library/Logs"
 LOG_DIR="${LOG_ROOT}/Contoso/MonitorInfo"
 LOG_FILE="${LOG_DIR}/monitor-info.log"
@@ -9,6 +11,18 @@ LOG_FILE="${LOG_DIR}/monitor-info.log"
 timestamp="$(date -u +"%Y-%m-%dT%H:%M:%S")+00:00"
 user="$(stat -f '%Su' /dev/console 2>/dev/null)"
 device="$(scutil --get ComputerName 2>/dev/null)"
+
+exec 1>>"${LOG_FILE}"
+exec 2> >(
+  err_stream=$(cat)
+
+  if [[ -n "${err_stream}" ]]; then
+    err_json=$(printf '%s' "${err_stream}" | jq -Rs .)
+
+    printf '{"timestamp":"%s","user":"%s","device":"%s","error":%s}\n' \
+      "$timestamp" "$user" "$device" "$err_json" >>"${LOG_FILE}"
+  fi
+)
 
 {
   printf '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -55,5 +69,4 @@ jq -c \
       ]
     )
   }
-' |
-tee -a "${LOG_FILE}"
+'
