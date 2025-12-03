@@ -19,7 +19,7 @@ exec 2> >(
   if [[ -n "${err_stream}" ]]; then
     err_json=$(printf '%s' "${err_stream}" | jq -Rs .)
 
-    printf '{"timestamp":"%s","user":"%s","device":"%s","error":%s}\n' \
+    printf '{"timestamp":"%s","user":"%s","device":"%s","status":"error","error_message":%s}\n' \
       "$timestamp" "$user" "$device" "$err_json" >>"${LOG_FILE}"
   fi
 )
@@ -51,6 +51,7 @@ jq -c \
     timestamp: $timestamp,
     user:      $user,
     device:    $device,
+    status: "ok",
 
     monitors: (
       [ .. | objects
