@@ -8,7 +8,7 @@ LOG_FILE="${LOG_DIR}/monitor-info.log"
 
 timestamp="$(date -u +"%Y-%m-%dT%H:%M:%S")+00:00"
 user="$(stat -f '%Su' /dev/console 2>/dev/null)"
-device="$(hostname)"
+device="$(scutil --get ComputerName 2>/dev/null)"
 
 {
   printf '<?xml version="1.0" encoding="UTF-8"?>\n'
