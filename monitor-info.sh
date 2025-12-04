@@ -17,7 +17,7 @@ prune_old_logs() {
 
   if jq -c --argjson cutoff "${cutoff_epoch}" '
       select(
-        (try (.timestamp | sub("\\+00:00$"; "Z") | fromdateiso8601) catch $cutoff)
+        (try (.timestamp | fromdateiso8601) catch $cutoff)
         >= $cutoff
       )
     ' "${LOG_FILE}" >"${tmp_log}"; then
@@ -29,7 +29,7 @@ prune_old_logs() {
 
 prune_old_logs
 
-timestamp="$(date -u +"%Y-%m-%dT%H:%M:%S")+00:00"
+timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 user="$(stat -f '%Su' /dev/console 2>/dev/null)"
 device="$(scutil --get ComputerName 2>/dev/null)"
 
